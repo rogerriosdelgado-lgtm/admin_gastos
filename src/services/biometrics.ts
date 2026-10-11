@@ -1,5 +1,6 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 const PIN_STORE_KEY = 'admin_gastos_user_pin';
 const BIOMETRICS_PREF_KEY = 'admin_gastos_biometrics_pref';
@@ -28,7 +29,7 @@ export const checkBiometricsSupport = async (): Promise<BiometricsStatus> => {
       isEnrolled,
       biometryType,
     };
-  } catch (error) {
+  } catch {
     return {
       hasHardware: false,
       isEnrolled: false,
@@ -48,13 +49,17 @@ export const promptBiometricAuth = async (
       disableDeviceFallback: false,
     });
     return result.success;
-  } catch (error) {
+  } catch {
     return false;
   }
 };
 
 export const saveUserPin = async (pin: string): Promise<boolean> => {
   try {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined') window.localStorage.setItem(PIN_STORE_KEY, pin);
+      return true;
+    }
     await SecureStore.setItemAsync(PIN_STORE_KEY, pin);
     return true;
   } catch {
@@ -64,7 +69,12 @@ export const saveUserPin = async (pin: string): Promise<boolean> => {
 
 export const verifyUserPin = async (pin: string): Promise<boolean> => {
   try {
-    const storedPin = await SecureStore.getItemAsync(PIN_STORE_KEY);
+    const storedPin =
+      Platform.OS === 'web'
+        ? typeof window !== 'undefined'
+          ? window.localStorage.getItem(PIN_STORE_KEY)
+          : null
+        : await SecureStore.getItemAsync(PIN_STORE_KEY);
     return storedPin !== null && storedPin === pin;
   } catch {
     return false;
@@ -73,7 +83,12 @@ export const verifyUserPin = async (pin: string): Promise<boolean> => {
 
 export const hasConfiguredPin = async (): Promise<boolean> => {
   try {
-    const pin = await SecureStore.getItemAsync(PIN_STORE_KEY);
+    const pin =
+      Platform.OS === 'web'
+        ? typeof window !== 'undefined'
+          ? window.localStorage.getItem(PIN_STORE_KEY)
+          : null
+        : await SecureStore.getItemAsync(PIN_STORE_KEY);
     return Boolean(pin);
   } catch {
     return false;
@@ -82,6 +97,11 @@ export const hasConfiguredPin = async (): Promise<boolean> => {
 
 export const setBiometricsPreference = async (enabled: boolean): Promise<void> => {
   try {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined')
+        window.localStorage.setItem(BIOMETRICS_PREF_KEY, enabled ? 'true' : 'false');
+      return;
+    }
     await SecureStore.setItemAsync(BIOMETRICS_PREF_KEY, enabled ? 'true' : 'false');
   } catch {
     // Ignore error
@@ -90,7 +110,12 @@ export const setBiometricsPreference = async (enabled: boolean): Promise<void> =
 
 export const getBiometricsPreference = async (): Promise<boolean> => {
   try {
-    const pref = await SecureStore.getItemAsync(BIOMETRICS_PREF_KEY);
+    const pref =
+      Platform.OS === 'web'
+        ? typeof window !== 'undefined'
+          ? window.localStorage.getItem(BIOMETRICS_PREF_KEY)
+          : null
+        : await SecureStore.getItemAsync(BIOMETRICS_PREF_KEY);
     // Por defecto activada si no se configuró expresamente
     return pref === null || pref === 'true';
   } catch {

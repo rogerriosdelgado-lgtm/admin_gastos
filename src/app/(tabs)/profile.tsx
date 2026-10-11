@@ -18,6 +18,8 @@ import {
   setBiometricsPreference,
   getBiometricsPreference,
 } from '../../services/biometrics';
+import { getGeminiApiKey } from '../../services/receiptScanner';
+import { GeminiApiKeyModal } from '../../components/GeminiApiKeyModal';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function ProfileScreen() {
@@ -28,9 +30,12 @@ export default function ProfileScreen() {
   const [nuevoPin, setNuevoPin] = useState('');
   const [mostrarPinInput, setMostrarPinInput] = useState(false);
   const [sueldoBase, setSueldoBase] = useState('');
+  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [showGeminiModal, setShowGeminiModal] = useState(false);
 
   React.useEffect(() => {
     getBiometricsPreference().then(setBiometricsActive);
+    getGeminiApiKey().then((k) => setHasGeminiKey(!!k));
   }, []);
 
   const handleToggleBiometrics = async (val: boolean) => {
@@ -200,12 +205,58 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Inteligencia Artificial / Escáner de Tickets */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="sparkles-outline" size={20} color="#7C3AED" />
+            <Text style={styles.sectionCardTitle}>Escáner de Tickets con IA</Text>
+          </View>
+          <Text style={styles.sectionDesc}>
+            Utiliza Google Gemini Vision para digitalizar tickets y comandas automáticamente.
+          </Text>
+
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <Text style={styles.settingLabel}>API Key de Google Gemini</Text>
+              <Text style={styles.settingSub}>
+                {hasGeminiKey
+                  ? '● Configurada y lista para usar'
+                  : 'Sin configurar (gratis en Google AI Studio)'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.actionPill,
+                { backgroundColor: hasGeminiKey ? '#F1F5F9' : '#EDE9FE' },
+              ]}
+              onPress={() => setShowGeminiModal(true)}
+            >
+              <Text
+                style={[
+                  styles.actionPillText,
+                  { color: hasGeminiKey ? '#475569' : '#7C3AED' },
+                ]}
+              >
+                {hasGeminiKey ? 'Cambiar' : 'Configurar'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Cerrar Sesión */}
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={20} color="#DC2626" />
           <Text style={styles.logoutBtnText}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <GeminiApiKeyModal
+        visible={showGeminiModal}
+        onClose={() => setShowGeminiModal(false)}
+        onSaved={() => {
+          getGeminiApiKey().then((k) => setHasGeminiKey(!!k));
+        }}
+      />
     </SafeAreaView>
   );
 }

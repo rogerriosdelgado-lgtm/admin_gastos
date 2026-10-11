@@ -14,11 +14,12 @@ import { useFinance } from '../../context/FinanceContext';
 import { formatearMoneda } from '../../services/finance';
 import { Gasto, CategoriaGasto } from '../../types/database';
 import { Ionicons } from '@expo/vector-icons';
+import { MonthSelector } from '../../components/MonthSelector';
 
 type FilterType = 'todos' | CategoriaGasto | 'compartido';
 
 export default function ExpensesScreen() {
-  const { gastos, deleteGasto } = useFinance();
+  const { gastos, deleteGasto, isLoading, refreshData } = useFinance();
   const [filtro, setFiltro] = useState<FilterType>('todos');
   const [busqueda, setBusqueda] = useState('');
 
@@ -130,6 +131,9 @@ export default function ExpensesScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Selector de Mes e Historial */}
+        <MonthSelector containerStyle={styles.monthSelectorWrapper} />
+
         {/* Buscador */}
         <View style={styles.searchBar}>
           <Ionicons name="search-outline" size={18} color="#94A3B8" />
@@ -226,6 +230,8 @@ export default function ExpensesScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
+          refreshing={isLoading}
+          onRefresh={refreshData}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="receipt-outline" size={48} color="#CBD5E1" />
@@ -407,5 +413,8 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     marginTop: 4,
     textAlign: 'center',
+  },
+  monthSelectorWrapper: {
+    marginBottom: 12,
   },
 });

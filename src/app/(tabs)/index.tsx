@@ -13,17 +13,11 @@ import { useAuth } from '../../context/AuthContext';
 import { useFinance } from '../../context/FinanceContext';
 import { formatearMoneda } from '../../services/finance';
 import { Ionicons } from '@expo/vector-icons';
+import { MonthSelector } from '../../components/MonthSelector';
 
 export default function DashboardScreen() {
   const { profile } = useAuth();
   const { resumen, gastos, isLoading, refreshData } = useFinance();
-
-  const meses = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-  ];
-  const mesNombre = meses[new Date().getMonth()];
-  const anio = new Date().getFullYear();
 
   const ultimosGastos = gastos.slice(0, 5);
 
@@ -37,9 +31,7 @@ export default function DashboardScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Hola, {profile?.nombre || 'Usuario'} 👋</Text>
-            <Text style={styles.monthBadge}>
-              {mesNombre} {anio}
-            </Text>
+            <Text style={styles.subGreeting}>Control de gastos e ingresos</Text>
           </View>
           <TouchableOpacity
             style={styles.bellBtn}
@@ -48,6 +40,9 @@ export default function DashboardScreen() {
             <Ionicons name="shield-checkmark-outline" size={22} color="#2563EB" />
           </TouchableOpacity>
         </View>
+
+        {/* Navegador de Mes e Historial */}
+        <MonthSelector containerStyle={styles.monthSelectorWrapper} />
 
         {/* Tarjeta Principal de Saldo y Sueldo */}
         <View style={styles.mainCard}>
@@ -271,11 +266,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0F172A',
   },
-  monthBadge: {
+  subGreeting: {
     fontSize: 14,
     color: '#64748B',
-    fontWeight: '600',
+    fontWeight: '500',
     marginTop: 2,
+  },
+  monthSelectorWrapper: {
+    marginBottom: 16,
   },
   bellBtn: {
     width: 44,

@@ -46,7 +46,7 @@ export default function UnlockScreen() {
     return () => {
       isMounted = false;
     };
-  }, [biometricsSupported]);
+  }, [biometricsSupported, unlockWithBiometrics]);
 
   const handleManualBiometric = async () => {
     setErrorMsg(null);

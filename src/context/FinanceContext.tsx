@@ -12,6 +12,7 @@ import {
 } from '../types/database';
 import { calcularResumenFinanciero, DeudaDetalle } from '../services/finance';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 interface FinanceContextType {
   ingresos: Ingreso[];
@@ -23,6 +24,10 @@ interface FinanceContextType {
   isLoading: boolean;
   mesActual: number;
   anioActual: number;
+  mesSeleccionado: number;
+  anioSeleccionado: number;
+  cambiarMes: (delta: number) => void;
+  irAlMesActual: () => void;
   addIngreso: (monto: number, concepto: string, tipo: TipoIngreso) => Promise<boolean>;
   addGastoPersonal: (
     titulo: string,
@@ -71,28 +76,63 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const mesActual = currentDate.getMonth() + 1; // 1-12
   const anioActual = currentDate.getFullYear();
 
+  const [mesSeleccionado, setMesSeleccionado] = useState<number>(mesActual);
+  const [anioSeleccionado, setAnioSeleccionado] = useState<number>(anioActual);
+
   const [ingresos, setIngresos] = useState<Ingreso[]>([]);
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [liquidaciones, setLiquidaciones] = useState<Liquidacion[]>([]);
   const [participantes, setParticipantes] = useState<ParticipanteExterno[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Cargar datos locales de respaldo
-  const loadLocalBackup = async () => {
-    try {
-      const savedIng = await SecureStore.getItemAsync(LOCAL_INGRESOS_KEY);
-      const savedGas = await SecureStore.getItemAsync(LOCAL_GASTOS_KEY);
-      const savedLiq = await SecureStore.getItemAsync(LOCAL_LIQUIDACIONES_KEY);
-      const savedPart = await SecureStore.getItemAsync(LOCAL_PARTICIPANTES_KEY);
+  const cambiarMes = (delta: number) => {
+    let nuevoMes = mesSeleccionado + delta;
+    let nuevoAnio = anioSeleccionado;
+    if (nuevoMes > 12) {
+      nuevoMes = 1;
+      nuevoAnio += 1;
+    } else if (nuevoMes < 1) {
+      nuevoMes = 12;
+      nuevoAnio -= 1;
+    }
+    setMesSeleccionado(nuevoMes);
+    setAnioSeleccionado(nuevoAnio);
+  };
 
-      if (savedIng) setIngresos(JSON.parse(savedIng));
-      if (savedGas) setGastos(JSON.parse(savedGas));
+  const irAlMesActual = () => {
+    setMesSeleccionado(mesActual);
+    setAnioSeleccionado(anioActual);
+  };
+
+  // Cargar datos locales de respaldo
+  const loadLocalBackup = useCallback(async () => {
+    try {
+      const getItem = async (key: string) => {
+        if (Platform.OS === 'web') {
+          return typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
+        }
+        return await SecureStore.getItemAsync(key);
+      };
+
+      const savedIng = await getItem(LOCAL_INGRESOS_KEY);
+      const savedGas = await getItem(LOCAL_GASTOS_KEY);
+      const savedLiq = await getItem(LOCAL_LIQUIDACIONES_KEY);
+      const savedPart = await getItem(LOCAL_PARTICIPANTES_KEY);
+
+      if (savedIng) {
+        const allIng: Ingreso[] = JSON.parse(savedIng);
+        setIngresos(allIng.filter((i) => i.mes === mesSeleccionado && i.anio === anioSeleccionado));
+      }
+      if (savedGas) {
+        const allGas: Gasto[] = JSON.parse(savedGas);
+        setGastos(allGas.filter((g) => g.mes === mesSeleccionado && g.anio === anioSeleccionado));
+      }
       if (savedLiq) setLiquidaciones(JSON.parse(savedLiq));
       if (savedPart) setParticipantes(JSON.parse(savedPart));
     } catch {
       // Ignorar error de lectura local
     }
-  };
+  }, [mesSeleccionado, anioSeleccionado]);
 
   const saveDataLocally = async (
     newIng: Ingreso[],
@@ -101,10 +141,18 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     newPart: ParticipanteExterno[]
   ) => {
     try {
-      await SecureStore.setItemAsync(LOCAL_INGRESOS_KEY, JSON.stringify(newIng));
-      await SecureStore.setItemAsync(LOCAL_GASTOS_KEY, JSON.stringify(newGas));
-      await SecureStore.setItemAsync(LOCAL_LIQUIDACIONES_KEY, JSON.stringify(newLiq));
-      await SecureStore.setItemAsync(LOCAL_PARTICIPANTES_KEY, JSON.stringify(newPart));
+      const setItem = async (key: string, val: string) => {
+        if (Platform.OS === 'web') {
+          if (typeof window !== 'undefined') window.localStorage.setItem(key, val);
+          return;
+        }
+        await SecureStore.setItemAsync(key, val);
+      };
+
+      await setItem(LOCAL_INGRESOS_KEY, JSON.stringify(newIng));
+      await setItem(LOCAL_GASTOS_KEY, JSON.stringify(newGas));
+      await setItem(LOCAL_LIQUIDACIONES_KEY, JSON.stringify(newLiq));
+      await setItem(LOCAL_PARTICIPANTES_KEY, JSON.stringify(newPart));
     } catch {
       // Ignorar error al guardar localmente
     }
@@ -120,22 +168,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       setIsLoading(true);
 
-      // 1. Ingresos
+      // 1. Ingresos del mes y año seleccionados
       const { data: ingData } = await supabase
         .from('ingresos')
         .select('*')
         .eq('usuario_id', user.id)
-        .eq('mes', mesActual)
-        .eq('anio', anioActual)
+        .eq('mes', mesSeleccionado)
+        .eq('anio', anioSeleccionado)
         .order('fecha', { ascending: false });
 
-      // 2. Gastos con divisiones e items
+      // 2. Gastos con divisiones e items del mes y año seleccionados
       const { data: gasData } = await supabase
         .from('gastos')
         .select('*, divisiones:gasto_divisiones(*), items:gasto_items(*)')
         .eq('usuario_id', user.id)
-        .eq('mes', mesActual)
-        .eq('anio', anioActual)
+        .eq('mes', mesSeleccionado)
+        .eq('anio', anioSeleccionado)
         .order('fecha', { ascending: false });
 
       // 3. Liquidaciones
@@ -168,9 +216,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } finally {
       setIsLoading(false);
     }
-  }, [user, mesActual, anioActual]);
+  }, [user, mesSeleccionado, anioSeleccionado, loadLocalBackup]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshData();
   }, [refreshData]);
 
@@ -184,8 +233,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       monto,
       tipo,
       fecha: today,
-      mes: mesActual,
-      anio: anioActual,
+      mes: mesSeleccionado,
+      anio: anioSeleccionado,
     };
 
     const updated = [newEntry, ...ingresos];
@@ -200,8 +249,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           monto,
           tipo,
           fecha: today,
-          mes: mesActual,
-          anio: anioActual,
+          mes: mesSeleccionado,
+          anio: anioSeleccionado,
         });
       } catch (err) {
         console.error('Error insertando ingreso en Supabase:', err);
@@ -228,8 +277,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       pagado_por_mi: true,
       pagado_por_nombre: profile?.nombre || 'Yo',
       fecha: today,
-      mes: mesActual,
-      anio: anioActual,
+      mes: mesSeleccionado,
+      anio: anioSeleccionado,
       notas,
       divisiones: [],
     };
@@ -249,8 +298,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           pagado_por_mi: true,
           pagado_por_nombre: profile?.nombre || 'Yo',
           fecha: today,
-          mes: mesActual,
-          anio: anioActual,
+          mes: mesSeleccionado,
+          anio: anioSeleccionado,
           notas,
         });
       } catch (err) {
@@ -289,8 +338,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       pagado_por_mi: pagadoPorMi,
       pagado_por_nombre: pagadoPorNombre,
       fecha: today,
-      mes: mesActual,
-      anio: anioActual,
+      mes: mesSeleccionado,
+      anio: anioSeleccionado,
       divisiones,
     };
 
@@ -311,8 +360,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             pagado_por_mi: pagadoPorMi,
             pagado_por_nombre: pagadoPorNombre,
             fecha: today,
-            mes: mesActual,
-            anio: anioActual,
+            mes: mesSeleccionado,
+            anio: anioSeleccionado,
           })
           .select()
           .single();
@@ -376,8 +425,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       pagado_por_mi: pagadoPorMi,
       pagado_por_nombre: pagadoPorNombre,
       fecha: today,
-      mes: mesActual,
-      anio: anioActual,
+      mes: mesSeleccionado,
+      anio: anioSeleccionado,
       divisiones,
       items,
     };
@@ -399,8 +448,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             pagado_por_mi: pagadoPorMi,
             pagado_por_nombre: pagadoPorNombre,
             fecha: today,
-            mes: mesActual,
-            anio: anioActual,
+            mes: mesSeleccionado,
+            anio: anioSeleccionado,
           })
           .select()
           .single();
@@ -549,6 +598,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isLoading,
         mesActual,
         anioActual,
+        mesSeleccionado,
+        anioSeleccionado,
+        cambiarMes,
+        irAlMesActual,
         addIngreso,
         addGastoPersonal,
         addGastoCompartidoSimple,

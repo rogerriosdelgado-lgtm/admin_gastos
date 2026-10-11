@@ -9,13 +9,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useFinance } from '../../context/FinanceContext';
 import { useAuth } from '../../context/AuthContext';
 import { CategoriaGasto } from '../../types/database';
 import { formatearMoneda } from '../../services/finance';
+import { parseReceiptWithGemini, getGeminiApiKey } from '../../services/receiptScanner';
+import { GeminiApiKeyModal } from '../../components/GeminiApiKeyModal';
 import { Ionicons } from '@expo/vector-icons';
 
 interface ItemLocal {
@@ -27,13 +31,18 @@ interface ItemLocal {
 
 export default function ItemizedSplitModal() {
   const { profile } = useAuth();
-  const { addGastoDesglosado, participantes, addParticipante } = useFinance();
+  const { addGastoDesglosado, addParticipante } = useFinance();
 
   const miNombre = profile?.nombre || 'Yo';
   const [titulo, setTitulo] = useState('');
   const [categoria, setCategoria] = useState<CategoriaGasto>('gusto');
   const [yoPague, setYoPague] = useState(true);
   const [pagadorNombre, setPagadorNombre] = useState(miNombre);
+
+  // Estados para Escáner IA de Tickets
+  const [isScanning, setIsScanning] = useState(false);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [pendingImageBase64, setPendingImageBase64] = useState<string | null>(null);
 
   // Lista de personas en este evento/ticket
   const [participantesGrupo, setParticipantesGrupo] = useState<string[]>([miNombre]);
@@ -50,6 +59,110 @@ export default function ItemizedSplitModal() {
   ]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Procesar imagen con Gemini Vision
+  const runAnalysis = async (base64: string) => {
+    const key = await getGeminiApiKey();
+    if (!key) {
+      setPendingImageBase64(base64);
+      setShowKeyModal(true);
+      return;
+    }
+
+    setIsScanning(true);
+    try {
+      const result = await parseReceiptWithGemini(base64);
+      if (!result.success) {
+        if (result.error === 'MISSING_KEY') {
+          setPendingImageBase64(base64);
+          setShowKeyModal(true);
+        } else {
+          Alert.alert('No pudimos leer el ticket', result.error || 'Intenta con una foto más nítida o centrada.');
+        }
+        return;
+      }
+
+      if (result.data) {
+        const { comercio, total, items: scannedItems } = result.data;
+        if (scannedItems.length === 0) {
+          Alert.alert(
+            'Sin productos detectados',
+            'No encontramos ítems legibles en la imagen. Intenta acercar la cámara o enfocar mejor el texto.'
+          );
+          return;
+        }
+
+        const mapped: ItemLocal[] = scannedItems.map((ci, idx) => ({
+          id: (Date.now() + idx).toString(),
+          descripcion: ci.descripcion,
+          precioStr: ci.precio > 0 ? ci.precio.toString() : '',
+          asignados: [...participantesGrupo],
+        }));
+
+        setItems(mapped);
+
+        if (!titulo.trim() && comercio) {
+          setTitulo(comercio);
+        }
+
+        Alert.alert(
+          '¡Ticket Interpretado con Éxito!',
+          `Se cargaron ${mapped.length} productos${total ? ` por un total de $${total.toLocaleString('es-ES')}` : ''}.\n\nPuedes revisar, editar o renombrar cualquier ítem y asignar quién consumió cada uno.`
+        );
+      }
+    } catch {
+      Alert.alert('Error', 'Ocurrió un error inesperado al procesar el ticket.');
+    } finally {
+      setIsScanning(false);
+      setPendingImageBase64(null);
+    }
+  };
+
+  const handleScanTicket = () => {
+    Alert.alert(
+      'Escanear Ticket con IA',
+      'Elige cómo deseas capturar el comprobante o comanda:',
+      [
+        {
+          text: 'Tomar Foto',
+          onPress: async () => {
+            try {
+              const res = await ImagePicker.launchCameraAsync({
+                mediaTypes: ['images'],
+                allowsEditing: true,
+                quality: 0.6,
+                base64: true,
+              });
+              if (!res.canceled && res.assets?.[0]?.base64) {
+                await runAnalysis(res.assets[0].base64);
+              }
+            } catch {
+              Alert.alert('Permiso necesario', 'Debes permitir el acceso a la cámara para tomar fotos.');
+            }
+          },
+        },
+        {
+          text: 'Elegir de Galería',
+          onPress: async () => {
+            try {
+              const res = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                allowsEditing: true,
+                quality: 0.6,
+                base64: true,
+              });
+              if (!res.canceled && res.assets?.[0]?.base64) {
+                await runAnalysis(res.assets[0].base64);
+              }
+            } catch {
+              Alert.alert('Permiso necesario', 'Debes permitir el acceso a tus fotos.');
+            }
+          },
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
+  };
 
   // Agregar persona al grupo del ticket
   const handleAddPersona = async () => {
@@ -293,6 +406,37 @@ export default function ItemizedSplitModal() {
               </TouchableOpacity>
             </View>
 
+            {/* Banner Escáner IA */}
+            <TouchableOpacity
+              style={[styles.aiScanBanner, isScanning && { opacity: 0.7 }]}
+              onPress={handleScanTicket}
+              disabled={isScanning}
+            >
+              <View style={styles.aiScanIconBox}>
+                {isScanning ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+                )}
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.aiScanTitle}>
+                  {isScanning ? 'Analizando Ticket con IA...' : 'Escanear Ticket o Comanda con IA'}
+                </Text>
+                <Text style={styles.aiScanSub}>
+                  {isScanning
+                    ? 'Extrayendo productos y precios...'
+                    : 'Toma una foto para autocompletar la lista'}
+                </Text>
+              </View>
+              {!isScanning && (
+                <View style={styles.aiScanBadge}>
+                  <Ionicons name="camera" size={16} color="#7C3AED" />
+                  <Text style={styles.aiScanBadgeText}>Foto</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
             {items.map((item, index) => (
               <View key={item.id} style={styles.itemBox}>
                 <View style={styles.itemHeader}>
@@ -379,6 +523,16 @@ export default function ItemizedSplitModal() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <GeminiApiKeyModal
+        visible={showKeyModal}
+        onClose={() => setShowKeyModal(false)}
+        onSaved={() => {
+          if (pendingImageBase64) {
+            runAnalysis(pendingImageBase64);
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -671,5 +825,47 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
+  },
+  aiScanBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1.5,
+    borderColor: '#DDD6FE',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+  aiScanIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#7C3AED',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aiScanTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#5B21B6',
+  },
+  aiScanSub: {
+    fontSize: 11,
+    color: '#6D28D9',
+    marginTop: 2,
+  },
+  aiScanBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  aiScanBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#7C3AED',
   },
 });
